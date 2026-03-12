@@ -1,6 +1,8 @@
+import re
+import random
 import time
 import traceback
-from urllib.parse import quote_plus
+from urllib.parse import urlencode
 
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -13,14 +15,32 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 GOOGLE_MAPS_URL = "https://www.google.com/maps"
 SHEET_NAME = "Leads_Data"
+VERCEL_BASE_URL = "https://dental-clinic-nine-tau.vercel.app" # Naya Live Template Link
 WAIT_SECONDS = 30
 SCROLL_PAUSE_SECONDS = 2
 MAX_SCROLLS = 8
 PAGE_LOAD_RETRIES = 3
 
+GENERAL_IMAGE_SETS = [
+    {
+        "hero_image": "https://images.unsplash.com/photo-1588776814546-ec7e3f5d4f2c",
+        "section_image_1": "https://images.unsplash.com/photo-1609840114035-3c981b782dfe",
+        "section_image_2": "https://images.unsplash.com/photo-1629909613654-28e377c37b09",
+    },
+    {
+        "hero_image": "https://images.unsplash.com/photo-1606811841689-23dfddce3e95",
+        "section_image_1": "https://images.unsplash.com/photo-1583947582886-f40ec95dd752",
+        "section_image_2": "https://images.unsplash.com/photo-1593022356769-11f762e25ed9",
+    },
+    {
+        "hero_image": "https://images.unsplash.com/photo-1588776814546-daab30f310ce",
+        "section_image_1": "https://images.unsplash.com/photo-1625134673337-519d8cdfe4dc",
+        "section_image_2": "https://images.unsplash.com/photo-1612277795421-9bc7706a4a41",
+    },
+]
+
 
 def connect_google_sheet():
-    """Google Sheets API ke zariye Leads_Data sheet se connection banata hai."""
     print("Connecting to Google Sheets Database...")
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -34,7 +54,6 @@ def connect_google_sheet():
 
 
 def create_driver():
-    """Stable Chrome session start karta hai taake Google Maps automation crash na kare."""
     options = webdriver.ChromeOptions()
     options.add_argument("--start-maximized")
     options.add_argument("--disable-notifications")
@@ -48,10 +67,7 @@ def create_driver():
     options.add_argument("--remote-allow-origins=*")
     options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     options.add_experimental_option("useAutomationExtension", False)
-    # IMPORTANT: "normal" ensures the full SPA (Google Maps) finishes loading
-    # before Selenium tries to find elements.  "eager" caused the TimeoutException
-    # because Maps' JS had not rendered the search box yet.
-    options.page_load_strategy = "normal"
+    options.page_load_strategy = "normal" # Old working strategy
 
     driver = webdriver.Chrome(options=options)
     driver.set_page_load_timeout(90)
@@ -59,7 +75,6 @@ def create_driver():
 
 
 def dismiss_google_dialogs(driver):
-    """Cookie ya consent popups ko close karta hai agar woh nazar aayen."""
     possible_buttons = [
         (By.XPATH, '//button[@aria-label="Reject all"]'),
         (By.XPATH, '//button[@aria-label="Accept all"]'),
@@ -82,11 +97,8 @@ def dismiss_google_dialogs(driver):
 
 
 def wait_for_maps_ready(driver, wait):
-    """Search input load hone ka wait karta hai — multiple selector fallbacks ke sath."""
-    # Pehle consent dialog handle karo (agar aaye toh)
     dismiss_google_dialogs(driver)
 
-    # Multiple selectors try karo — Google Maps DOM change hota rehta hai
     search_selectors = [
         (By.ID, "searchboxinput"),
         (By.CSS_SELECTOR, 'input#searchboxinput'),
@@ -105,31 +117,22 @@ def wait_for_maps_ready(driver, wait):
         except (TimeoutException, WebDriverException):
             continue
 
-    # Agar koi selector kaam nahi aaya — last resort: consent dobara try karo
     print("Search box not found on first pass. Retrying after consent check...")
     if dismiss_google_dialogs(driver):
         time.sleep(2)
 
-    # Final attempt with long wait
-    return wait.until(
-        EC.element_to_be_clickable((By.ID, "searchboxinput"))
-    )
+    return wait.until(EC.element_to_be_clickable((By.ID, "searchboxinput")))
 
 
 def get_results_feed(driver, wait):
-    """Results list ka scrollable panel find karta hai."""
     return wait.until(
         EC.presence_of_element_located(
-            (
-                By.XPATH,
-                '//div[@role="feed"] | //div[contains(@aria-label, "Results for")]'
-            )
+            (By.XPATH, '//div[@role="feed"] | //div[contains(@aria-label, "Results for")]')
         )
     )
 
 
 def scroll_results_panel(driver, results_feed):
-    """Google Maps lazy loading ko trigger karne ke liye results panel scroll karta hai."""
     print("Scrolling through business listings...")
     last_height = driver.execute_script("return arguments[0].scrollHeight", results_feed)
 
@@ -143,7 +146,6 @@ def scroll_results_panel(driver, results_feed):
 
 
 def collect_listing_urls(driver):
-    """Visible search results se unique business URLs nikalta hai."""
     listing_elements = driver.find_elements(By.XPATH, '//a[contains(@href, "/maps/place/")]')
     unique_urls = []
     seen_urls = set()
@@ -152,11 +154,9 @@ def collect_listing_urls(driver):
         href = listing.get_attribute("href")
         if not href:
             continue
-
         normalized_href = href.split("&entry=")[0]
         if normalized_href in seen_urls:
             continue
-
         seen_urls.add(normalized_href)
         unique_urls.append(normalized_href)
 
@@ -164,7 +164,6 @@ def collect_listing_urls(driver):
 
 
 def extract_phone_number(driver):
-    """Business details page se phone number nikalta hai."""
     phone_selectors = [
         '//button[contains(@data-item-id, "phone:tel:")]',
         '//a[contains(@data-item-id, "phone:tel:")]',
@@ -175,30 +174,56 @@ def extract_phone_number(driver):
     for selector in phone_selectors:
         try:
             phone_element = driver.find_element(By.XPATH, selector)
+            data_item = phone_element.get_attribute("data-item-id") or ""
+            if "phone:tel:" in data_item:
+                return data_item.replace("phone:tel:", "").strip()
+
+            aria_label = phone_element.get_attribute("aria-label") or ""
+            if aria_label:
+                label_parts = aria_label.split(":", 1)
+                if len(label_parts) == 2 and label_parts[1].strip():
+                    return label_parts[1].strip()
+
+            visible_text = phone_element.text.strip()
+            if visible_text:
+                return visible_text
         except NoSuchElementException:
             continue
-
-        data_item = phone_element.get_attribute("data-item-id") or ""
-        if "phone:tel:" in data_item:
-            return data_item.replace("phone:tel:", "").strip()
-
-        aria_label = phone_element.get_attribute("aria-label") or ""
-        if aria_label:
-            label_parts = aria_label.split(":", 1)
-            if len(label_parts) == 2 and label_parts[1].strip():
-                return label_parts[1].strip()
-
-        visible_text = phone_element.text.strip()
-        if visible_text:
-            return visible_text
-
     return "N/A"
+
+# --- NEW: Address Extraction ---
+def extract_address(driver):
+    address_selectors = [
+        '//button[contains(@data-item-id, "address")]//div[contains(@class, "fontBodyMedium")]',
+        '//button[contains(@data-item-id, "address")]',
+        '//div[@data-item-id="address"]',
+    ]
+    for selector in address_selectors:
+        try:
+            address_element = driver.find_element(By.XPATH, selector)
+            aria_label = address_element.get_attribute("aria-label") or ""
+            if aria_label:
+                parts = aria_label.split(":", 1)
+                if len(parts) == 2 and parts[1].strip():
+                    return parts[1].strip()
+            text = address_element.text.strip()
+            if text:
+                return text.replace("Address:", "").strip()
+        except NoSuchElementException:
+            continue
+    return "N/A"
+
+# --- NEW: Latitude & Longitude Extraction ---
+def extract_lat_lng_from_url(url):
+    if not url:
+        return "N/A", "N/A"
+    match = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+)", url)
+    if match:
+        return match.group(1), match.group(2)
+    return "N/A", "N/A"
 
 
 def extract_business_details(driver, wait):
-    """Detail page se business name, website status, aur phone nikalta hai."""
-    # Google Maps skeleton UI ki wajah se <h1> pehle aa jata hai lekin text late fill hota hai.
-    # Is liye pehle element wait karo, phir max 5 sec tak non-empty text ka wait karo.
     name_element = wait.until(EC.presence_of_element_located((By.XPATH, '//h1')))
 
     def _name_text_loaded(_driver):
@@ -210,15 +235,38 @@ def extract_business_details(driver, wait):
     except TimeoutException:
         business_name = "Name Loading Error"
 
-    website_exists = len(
-        driver.find_elements(
-            By.XPATH,
-            '//a[@data-item-id="authority"] | //a[contains(@aria-label, "Website")]'
-        )
-    ) > 0
+    # --- NAYA LOGIC: Social Media Links Ko Ignore Karne Ke Liye ---
+    website_elements = driver.find_elements(
+        By.XPATH,
+        '//a[@data-item-id="authority"] | //a[contains(@aria-label, "Website")]'
+    )
+
+    has_real_website = False
+    
+    if website_elements:
+        website_url = website_elements[0].get_attribute("href") or ""
+        website_url = website_url.lower()
+        
+        # Social Media aur Free sites ki list jo hum real website nahi mante
+        social_domains = [
+            "facebook.com", "instagram.com", "twitter.com", "x.com", 
+            "linkedin.com", "wa.me", "api.whatsapp.com", "business.site", 
+            "linktr.ee", "youtube.com"
+        ]
+        
+        # Agar URL mein in mein se koi bhi naam nahi hai, toh iska matlab asli website hai
+        if website_url and not any(domain in website_url for domain in social_domains):
+            has_real_website = True
 
     phone_number = extract_phone_number(driver)
-    return business_name, website_exists, phone_number
+    address = extract_address(driver)
+    lat, lng = extract_lat_lng_from_url(driver.current_url)
+    
+    # Hum has_real_website return kar rahe hain
+    return business_name, has_real_website, phone_number, address, lat, lng
+
+def get_general_image_set():
+    return random.choice(GENERAL_IMAGE_SETS)
 
 def scrape_google_maps(search_query, city_name, category_name, sheet):
     print(f"\nTargeting Niche: {category_name} in {city_name}")
@@ -230,16 +278,14 @@ def scrape_google_maps(search_query, city_name, category_name, sheet):
         driver = create_driver()
         wait = WebDriverWait(driver, WAIT_SECONDS)
 
-        # ---------- Page Load with Retry ----------
         search_box = None
         for attempt in range(1, PAGE_LOAD_RETRIES + 1):
             try:
                 print(f"Loading Google Maps (attempt {attempt}/{PAGE_LOAD_RETRIES})...")
                 driver.get(GOOGLE_MAPS_URL)
-                # Give the SPA time to fully hydrate before looking for elements
                 time.sleep(5)
                 search_box = wait_for_maps_ready(driver, wait)
-                break  # success
+                break 
             except (TimeoutException, WebDriverException) as load_err:
                 print(f"Attempt {attempt} failed: {load_err}")
                 if attempt == PAGE_LOAD_RETRIES:
@@ -268,61 +314,57 @@ def scrape_google_maps(search_query, city_name, category_name, sheet):
         processed_count = 0
         skipped_count = 0
 
-        # Har business URL ko detail page par visit kar ke filter lagayenge
         for index, listing_url in enumerate(listing_urls, start=1):
             try:
                 print(f"Checking business {index}/{len(listing_urls)}...")
                 driver.get(listing_url)
-                time.sleep(3)
+                time.sleep(3) # Wait for page to fully load
 
-                business_name, website_exists, phone_number = extract_business_details(driver, wait)
+                business_name, has_real_website, phone_number, address, lat, lng = extract_business_details(driver, wait)
 
-                # Agar website nahi hai aur number mojood hai toh Save karein!
-                if not website_exists and phone_number != "N/A":
+                # Aur condition ko is tarah update karein:
+                if not has_real_website and phone_number != "N/A":
                     print(f"[HOT LEAD] Name: {business_name} | Phone: {phone_number}")
 
-                    # SEO Optimized Dynamic URL
-                    clean_name = quote_plus(business_name.replace("&", "and"))
-                    dynamic_url = f"https://youragency.vercel.app/?client={clean_name}&phone={phone_number}"
+                    clean_name = business_name.replace("&", "and")
+                    clean_address = address
+                    image_set = get_general_image_set()
+                    
+                    # URL with all parameters (including general images for hero/sections)
+                    dynamic_url = (
+                        f"{VERCEL_BASE_URL}/?"
+                        f"{urlencode({
+                            'client': clean_name,
+                            'phone': phone_number,
+                            'address': clean_address,
+                            'lat': lat,
+                            'long': lng,
+                            'hero_image': image_set['hero_image'],
+                            'section_image_1': image_set['section_image_1'],
+                            'section_image_2': image_set['section_image_2'],
+                        })}"
+                    )
 
-                    # Google Sheet me Data Insert Karna
-                    row_data = [business_name, phone_number, category_name, city_name, dynamic_url]
+                    # Columns: A(Name), B(Phone), C(Category), D(City), E(URL), F(Status), G(Address), H(Lat), I(Long)
+                    row_data = [business_name, phone_number, category_name, city_name, dynamic_url, "Pending", address, lat, lng]
+                    
                     try:
                         sheet.append_row(row_data, value_input_option="USER_ENTERED")
                         print(f"  -> Saved to Google Sheet successfully.")
                         processed_count += 1
-                    except gspread.exceptions.APIError as api_err:
-                        print(f"  -> [SHEET API ERROR] Could not save '{business_name}': {api_err}")
-                        print(f"     Response: {api_err.response.text}")
                     except Exception as sheet_err:
                         print(f"  -> [SHEET ERROR] Could not save '{business_name}': {sheet_err}")
                 else:
                     print(f"[SKIPPED] {business_name} (Reason: Has Website or No Phone)")
                     skipped_count += 1
 
-            except TimeoutException:
-                print(f"[SKIPPED] Detail page timed out for: {listing_url}")
-                skipped_count += 1
-                continue
-            except WebDriverException as error:
-                print(f"[SKIPPED] Browser issue while processing listing: {error}")
-                skipped_count += 1
-                continue
             except Exception as error:
-                print(f"[SKIPPED] Unexpected error: {error}")
+                print(f"[SKIPPED] Error processing listing: {error}")
                 skipped_count += 1
                 continue
 
-        print(
-            f"\nScraping Completed! Successfully saved {processed_count} new leads to Google Sheets. "
-            f"Skipped: {skipped_count}."
-        )
+        print(f"\nScraping Completed! Successfully saved {processed_count} new leads to Google Sheets. Skipped: {skipped_count}.")
 
-    except TimeoutException as error:
-        print(f"An error occurred during search: Timeout while waiting for Google Maps. {error}")
-    except WebDriverException as error:
-        print(f"An error occurred during search: Browser automation failed. {error}")
-        print(traceback.format_exc())
     except Exception as error:
         print(f"An error occurred during search: {error}")
         print(traceback.format_exc())
@@ -330,18 +372,13 @@ def scrape_google_maps(search_query, city_name, category_name, sheet):
         if driver:
             driver.quit()
 
-# ==========================================
-# Predefined niches — add more entries here to batch-scrape multiple targets
-# ==========================================
 PREDEFINED_TARGETS = [
     {"category": "Marble & Granite",      "city": "Peshawar"},
     {"category": "Auto Spare Parts",      "city": "Peshawar"},
     {"category": "Furniture Shops",       "city": "Islamabad"},
 ]
 
-
 def get_targets():
-    """User se dynamic input leta hai ya predefined list use karta hai."""
     print("\n========== Lead Generation Bot ==========")
     print("1) Enter a custom Category & City")
     print("2) Run all predefined targets")
@@ -355,7 +392,6 @@ def get_targets():
         print(f"Running {len(targets)} predefined target(s)...")
         return targets
 
-    # Default: custom single query
     category = input("Enter Category (e.g. Marble & Granite): ").strip()
     city = input("Enter City (e.g. Peshawar): ").strip()
     if not category or not city:
@@ -364,10 +400,6 @@ def get_targets():
     search_query = f"{category} in {city}"
     return [(search_query, city, category)]
 
-
-# ==========================================
-# Run the Bot
-# ==========================================
 if __name__ == "__main__":
     google_sheet = connect_google_sheet()
     targets = get_targets()
