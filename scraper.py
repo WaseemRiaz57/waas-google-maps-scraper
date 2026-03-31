@@ -224,6 +224,7 @@ def build_dynamic_vercel_url(business_name, phone_number, address, lat, lng, cit
     params = {
         # Core Location & Identity
         'client': clean_name,
+        'city': city_name,
         'phone': phone_number,
         'address': address,
         'lat': lat,
