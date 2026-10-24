@@ -1,2 +1,5 @@
 credentials.json
 __pycache__/
+chrome_profile/
+chrome_profile_local/
+~$edentials.json
