@@ -103,19 +103,20 @@ def format_pakistani_phone(raw_phone) -> str:
 
 
 def build_message(business_name: str, dynamic_url: str) -> str:
-    """v2: short Roman Urdu pitch with price and opt-out.
+    """v2 (revised evening 24 Oct 2026): professional English first message, NO price yet.
+    Price (PKR 15,000 fixed, PKR 7,500 advance) is discussed only after the clinic shows interest.
     The demo link is included ONLY when a real demo URL is passed in; pass "" to omit it
     (the demo page is still a placeholder and must not be sent as if it were the clinic's own site)."""
-    demo_part = f"\nAap ki demo is link par dekh sakte hain:\n{dynamic_url}\n" if dynamic_url else ""
+    demo_part = f"\nYou can view your demo here:\n{dynamic_url}\n" if dynamic_url else ""
     return (
-        f"Assalam o Alaikum! Mera naam Waseem hai, SiteSphere se. "
-        f"Maine dekha {business_name} Google par hai lekin apni website nahi hai, "
-        f"is liye patients ko booking ke liye call karna parti hai.\n\n"
-        f"Website + WhatsApp booking + Google profile setup, aik dafa ki fixed price PKR 15,000 me, "
-        f"kaam shuru karne ke liye 7,500 advance par. 3 din me pehla draft de dunga."
+        f"Hello, this is Waseem from SiteSphere. I noticed that {business_name} is listed on Google, "
+        f"but does not yet have its own website, so patients currently need to call to arrange an appointment. "
+        f"We recently built a website for a dental clinic in Faisalabad with WhatsApp booking, "
+        f"allowing patients to request an appointment directly on WhatsApp. If you would like, we can build "
+        f"a similar website for your clinic, along with setting up your Google Business Profile."
         f"{demo_part}"
-        f"\nInterest ho to reply kar dein. SiteSphere WhatsApp: 03155741347.\n"
-        f"Agar aap ye messages nahi chahte to STOP reply kar dein, dobara message nahi aayega."
+        f"\nPlease let me know if you would be interested, and I will be happy to share the details.\n"
+        f"Reply STOP if you prefer not to receive further messages."
     )
 
 

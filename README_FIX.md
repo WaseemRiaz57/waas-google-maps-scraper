@@ -18,8 +18,9 @@ Nothing has been pushed to GitHub yet, and no WhatsApp message has been sent by 
   snippet and up to 3 business photo URLs from the Maps detail panel. For a LIVE client site,
   publish reviews/photos only with the client's confirmation and Google attribution where required.
   The clean live route is the Google Places API (needs an API key) or client-supplied photos/reviews.
-- **Message:** short Roman Urdu pitch with PKR 15,000 fixed price, PKR 7,500 advance, 3-day first
-  draft, SiteSphere WhatsApp 03155741347, and an opt-out ("STOP reply kar dein").
+- **Message (revised evening 24 Oct 2026):** professional English first message, NO price mentioned yet.
+  Price is discussed only after the clinic shows interest. The message keeps an opt-out
+  ("Reply STOP if you prefer not to receive further messages").
   The demo link is included only when a real demo URL is passed; pass "" to omit it.
 - **Approval gate:** the bot sends ONLY rows whose Status is exactly "Approved".
   "Pending" rows are drafts and are never auto-sent. The bot also asks for a typed YES before sending.
