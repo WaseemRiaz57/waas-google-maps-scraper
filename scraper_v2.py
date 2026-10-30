@@ -26,12 +26,13 @@ PAGE_LOAD_RETRIES = 3
 
 def connect_google_sheet():
     print("Connecting to Google Sheets Database...")
-    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"]
+    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = service_account.Credentials.from_service_account_file("credentials.json", scopes=scope)
     client = gspread.authorize(creds)
     sheet = client.open(SHEET_NAME).sheet1
     print("Successfully connected to Database!")
     return sheet
+
 
 def ensure_header(sheet):
     """Write the header row if the sheet is empty, so the first lead is never eaten as a header."""
